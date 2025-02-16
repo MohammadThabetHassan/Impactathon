@@ -19,6 +19,7 @@ from datetime import datetime, timedelta
 import joblib
 import warnings
 import urllib3
+import boto3
 from imblearn.pipeline import Pipeline as ImbPipeline
 from imblearn.over_sampling import SMOTE
 # Suppress warnings from XGBoost and insecure requests
@@ -380,95 +381,188 @@ def show_threat_intel_feed():
 # -------------------------------
 # Cloud Security Module (Enhanced with CSV Upload)
 # -------------------------------
+# AWS Configuration (Replace with actual credentials or use AWS Profile)
+AWS_ACCESS_KEY = "AKIAU6GDVM66RZT37LOU"  # ❌ Replace or use AWS Profile
+AWS_SECRET_KEY = "8vsjj5QabRyY5VEfnNokJ8g9HR7BjjovQO3Qrmt7"  # ❌ Replace or use AWS Profile
+AWS_REGION = "us-east-1"
+LOG_GROUP_NAME = "Honeypot-SSH-Logs"
+LOG_STREAM_NAME = "i-00f2acb92268f3a39"  # ✅ Correct log stream name
+
+# Initialize Boto3 Client
+client = boto3.client(
+    "logs",
+    aws_access_key_id=AWS_ACCESS_KEY,
+    aws_secret_access_key=AWS_SECRET_KEY,
+    region_name=AWS_REGION,
+)
+
 def scan_cloud_security():
-    st.markdown("### Cloud Security Posture")
-    st.write("Upload a CSV file containing your cloud security findings.")
-    uploaded_file = st.file_uploader("Upload Cloud Security CSV", type=["csv"])
-    if uploaded_file:
-        df_findings = pd.read_csv(uploaded_file)
-        st.write("### Cloud Security Findings")
-        st.dataframe(df_findings)
-        if "Severity" in df_findings.columns:
-            severity_map = {"Low": 1, "Medium": 2, "High": 3}
-            if df_findings["Severity"].dtype == object:
-                df_findings["Severity_Numeric"] = df_findings["Severity"].map(severity_map)
+    """Fetch CloudWatch logs and display in Streamlit."""
+    st.markdown("### 🔒 Cloud Security Posture")
+    st.write("Fetching honeypot logs from AWS CloudWatch...")
+
+    if st.button("Fetch Logs"):
+        try:
+            response = client.get_log_events(
+                logGroupName=LOG_GROUP_NAME,
+                logStreamName=LOG_STREAM_NAME,
+                limit=10
+            )
+
+            events = response.get("events", [])
+            if events:
+                # Convert log events to DataFrame
+                df_logs = pd.DataFrame(events)
+                if "timestamp" in df_logs.columns:
+                    df_logs["timestamp"] = pd.to_datetime(df_logs["timestamp"], unit="ms")
+                st.write("### 📜 Honeypot Logs")
+                st.dataframe(df_logs)
+                st.session_state["cloud_findings"] = len(df_logs)
             else:
-                df_findings["Severity_Numeric"] = df_findings["Severity"]
-        else:
-            df_findings["Severity_Numeric"] = 0
-        st.plotly_chart(px.bar(df_findings, x="Issue", y="Severity_Numeric", color="Severity",
-                               title="Cloud Security Findings"))
-        st.session_state["cloud_findings"] = len(df_findings)
-    else:
-        st.info("Please upload a CSV file with your cloud security findings.")
+                st.info("No logs found for the specified log group/stream.")
+        except Exception as e:
+            st.error(f"❌ Error fetching logs: {str(e)}")
+
+
+
 
 
 # -------------------------------
 # AI Security Quiz Module (Replaces Compliance)
 # -------------------------------
 def ai_security_quiz():
-    st.markdown("### AI Security Quiz")
-    st.write("Answer the following dynamically generated question:")
+    # Define quiz questions
     questions = [
         {
             "question": "What is the most secure way to manage your passwords?",
-            "choices": ["Write them on a sticky note", "Reuse the same password for every account",
-                        "Use a password manager", "Share them with a trusted friend"],
+            "choices": [
+                "Write them on a sticky note",
+                "Reuse the same password for every account",
+                "Use a password manager",
+                "Share them with a trusted friend"
+            ],
             "answer": "Use a password manager"
         },
         {
             "question": "Which of the following is a strong indicator of a phishing email?",
-            "choices": ["An email from your bank asking to update your password", "An email from a known friend",
-                        "An official company newsletter", "An automated bill reminder"],
+            "choices": [
+                "An email from your bank asking to update your password",
+                "An email from a known friend",
+                "An official company newsletter",
+                "An automated bill reminder"
+            ],
             "answer": "An email from your bank asking to update your password"
         },
         {
             "question": "What should you do if you receive an unsolicited email with a suspicious attachment?",
-            "choices": ["Open the attachment to see what's inside", "Forward it to colleagues",
-                        "Delete the email and report it", "Reply to ask for more information"],
+            "choices": [
+                "Open the attachment to see what's inside",
+                "Forward it to colleagues",
+                "Delete the email and report it",
+                "Reply to ask for more information"
+            ],
             "answer": "Delete the email and report it"
         },
         {
             "question": "Which best describes two-factor authentication (2FA)?",
-            "choices": ["Using two different passwords", "A process requiring two forms of identification",
-                        "A single password with a security question", "Encrypting data twice"],
+            "choices": [
+                "Using two different passwords",
+                "A process requiring two forms of identification",
+                "A single password with a security question",
+                "Encrypting data twice"
+            ],
             "answer": "A process requiring two forms of identification"
         }
     ]
-    current_question = random.choice(questions)
-    st.write("**Question:** " + current_question["question"])
-    selected = st.radio("Choose an answer:", current_question["choices"])
-    if st.button("Submit Answer"):
-        if selected == current_question["answer"]:
-            st.success("Correct!")
-            st.session_state["compliance_score"] = st.session_state.get("compliance_score", 0) + 10
-            st.session_state["user_awareness"] = "Yes"
-        else:
-            st.error("Incorrect. The correct answer is: " + current_question["answer"])
-            st.session_state["user_awareness"] = "No"
 
+    # Initialize session state for quiz if not already set
+    if "quiz_question" not in st.session_state:
+        st.session_state.quiz_question = random.choice(questions)
+        st.session_state.quiz_submitted = False
+        st.session_state.quiz_feedback = ""
 
+    quiz_container = st.container()
+
+    # Display quiz inside the container
+    if not st.session_state.quiz_submitted:
+        quiz_container.write("**Question:** " + st.session_state.quiz_question["question"])
+        selected = quiz_container.radio("Choose an answer:", st.session_state.quiz_question["choices"], key="quiz_radio")
+        if quiz_container.button("Submit Answer"):
+            if selected == st.session_state.quiz_question["answer"]:
+                st.session_state.quiz_feedback = "Correct!"
+                st.session_state["compliance_score"] = st.session_state.get("compliance_score", 0) + 10
+                st.session_state.user_awareness = "Yes"
+            else:
+                st.session_state.quiz_feedback = "Incorrect. The correct answer is: " + st.session_state.quiz_question["answer"]
+                st.session_state.user_awareness = "No"
+            st.session_state.quiz_submitted = True
+            quiz_container.empty()  # Clear container to force re-render
+            ai_security_quiz()  # Re-call the function to update UI
+    else:
+        quiz_container.write("**Feedback:** " + st.session_state.quiz_feedback)
+        if quiz_container.button("Next Question"):
+            st.session_state.quiz_question = random.choice(questions)
+            st.session_state.quiz_submitted = False
+            st.session_state.quiz_feedback = ""
+            quiz_container.empty()
+            ai_security_quiz()
+
+# Usage: call ai_security_quiz() in your main app when you want to show the quiz.
 # -------------------------------
 # Incident Response & Remediation Module (New Feature)
 # -------------------------------
 def incident_response():
     st.markdown("### Incident Response & Remediation")
-    st.write("Based on current security metrics, the following actions are recommended:")
+    # Gather current security metrics from session state
     ids_alerts = st.session_state.get("ids_alerts", 0)
     phishing_scans = st.session_state.get("phishing_scans", 0)
+    cloud_findings = st.session_state.get("cloud_findings", 0)
+    threat_intel = st.session_state.get("threat_intel", 0)
+    user_awareness = st.session_state.get("user_awareness", "No")
 
+    # Construct an AI prompt based on current metrics
+    prompt = (
+        "Analyze the following security metrics and generate an incident response plan:\n"
+        f"- IDS Alerts: {ids_alerts}\n"
+        f"- Phishing Scans: {phishing_scans}\n"
+        f"- Cloud Security Findings: {cloud_findings}\n"
+        f"- Threat Intelligence Indicators: {threat_intel}\n"
+        f"- User Awareness: {user_awareness}\n\n"
+        "Based on these metrics, recommend the best course of action to remediate potential incidents, "
+        "minimize risks, and improve overall security posture."
+    )
+
+
+
+    # Simulated analysis: generate recommendations based on thresholds
     recommendations = []
-    if ids_alerts >= 5:
-        recommendations.append("Investigate network traffic anomalies and isolate affected segments.")
-    if phishing_scans >= 3:
-        recommendations.append("Review phishing alerts and instruct users to change passwords immediately.")
-    if not recommendations:
-        recommendations.append(
-            "No significant incidents detected. Continue monitoring and maintain standard security practices.")
+    if ids_alerts > 10:
+        recommendations.append("Immediately investigate network traffic anomalies and isolate affected segments.")
+    elif ids_alerts > 5:
+        recommendations.append("Review IDS alerts and verify unusual traffic patterns.")
 
-    st.write("#### Recommended Actions:")
-    for rec in recommendations:
-        st.write("- " + rec)
+    if phishing_scans > 5:
+        recommendations.append("Conduct a comprehensive phishing investigation and enforce immediate password resets for impacted users.")
+    elif phishing_scans > 3:
+        recommendations.append("Review recent phishing alerts and reinforce email filtering rules.")
+
+    if cloud_findings > 2:
+        recommendations.append("Assess and remediate cloud configuration vulnerabilities promptly.")
+
+    if threat_intel > 0:
+        recommendations.append("Correlate threat intelligence data with internal logs to identify and neutralize potential threats.")
+
+    if user_awareness == "No":
+        recommendations.append("Schedule a mandatory security awareness training for all users.")
+
+    if not recommendations:
+        recommendations.append("Current metrics indicate low risk; continue with routine monitoring and regular security reviews.")
+
+    # Combine recommendations into a final response plan
+    response_plan = "Based on the analysis, the following incident response plan is recommended:\n" + "\n".join(f"- {rec}" for rec in recommendations)
+
+    st.write("#### AI-Generated Incident Response Plan:")
+    st.write("Response Plan", response_plan, height=400)
 
 
 # -------------------------------
