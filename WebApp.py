@@ -1,5 +1,9 @@
 import streamlit as st
-
+import streamlit as st
+import boto3
+import pandas as pd
+import re
+from datetime import datetime
 st.set_page_config(page_title="Unified Cybersecurity Suite", layout="wide")
 import plotly.express as px
 import os
@@ -382,46 +386,93 @@ def show_threat_intel_feed():
 # Cloud Security Module (Enhanced with CSV Upload)
 # -------------------------------
 # AWS Configuration (Replace with actual credentials or use AWS Profile)
-AWS_ACCESS_KEY = "AKIAU6GDVM66RZT37LOU"  # ❌ Replace or use AWS Profile
-AWS_SECRET_KEY = "8vsjj5QabRyY5VEfnNokJ8g9HR7BjjovQO3Qrmt7"  # ❌ Replace or use AWS Profile
-AWS_REGION = "us-east-1"
-LOG_GROUP_NAME = "Honeypot-SSH-Logs"
-LOG_STREAM_NAME = "i-00f2acb92268f3a39"  # ✅ Correct log stream name
-
-# Initialize Boto3 Client
-client = boto3.client(
-    "logs",
-    aws_access_key_id=AWS_ACCESS_KEY,
-    aws_secret_access_key=AWS_SECRET_KEY,
-    region_name=AWS_REGION,
-)
 
 def scan_cloud_security():
-    """Fetch CloudWatch logs and display in Streamlit."""
+    """Fetch CloudWatch logs, display analysis & diagrams in Streamlit."""
+
+    AWS_ACCESS_KEY = ""  # 
+    AWS_SECRET_KEY = ""  # 
+    AWS_REGION = "us-east-1"
+    LOG_GROUP_NAME = "Honeypot-SSH-Logs"
+    LOG_STREAM_NAME = "i-00f2acb92268f3a39" 
+
+    # Regex pattern to find IPv4 addresses in log messages
+    IP_REGEX = r'(?:[0-9]{1,3}\.){3}[0-9]{1,3}'
+
+    # Initialize Boto3 Client
+    client = boto3.client(
+        "logs",
+        aws_access_key_id=AWS_ACCESS_KEY,
+        aws_secret_access_key=AWS_SECRET_KEY,
+        region_name=AWS_REGION,
+    )
+
     st.markdown("### 🔒 Cloud Security Posture")
     st.write("Fetching honeypot logs from AWS CloudWatch...")
 
+    # Slider to choose how many logs to fetch
+    limit_logs = st.slider("Number of logs to fetch:", min_value=10, max_value=200, value=20, step=10)
+
     if st.button("Fetch Logs"):
         try:
+            # Fetch logs from CloudWatch
             response = client.get_log_events(
                 logGroupName=LOG_GROUP_NAME,
                 logStreamName=LOG_STREAM_NAME,
-                limit=10
+                limit=limit_logs
             )
-
             events = response.get("events", [])
+
             if events:
-                # Convert log events to DataFrame
+                # Convert log events to a DataFrame
                 df_logs = pd.DataFrame(events)
+
+                # Convert timestamp from milliseconds to datetime
                 if "timestamp" in df_logs.columns:
                     df_logs["timestamp"] = pd.to_datetime(df_logs["timestamp"], unit="ms")
-                st.write("### 📜 Honeypot Logs")
+
+                # Extract IP addresses from the message field
+                if "message" in df_logs.columns:
+                    df_logs["ip_address"] = df_logs["message"].apply(
+                        lambda x: re.findall(IP_REGEX, x)[0] if re.findall(IP_REGEX, x) else None
+                    )
+                else:
+                    df_logs["ip_address"] = None
+
+                # Display raw logs
+                st.subheader("📜 Raw Honeypot Logs")
                 st.dataframe(df_logs)
-                st.session_state["cloud_findings"] = len(df_logs)
+
+                # Basic stats
+                total_logs = len(df_logs)
+                unique_ips = df_logs["ip_address"].nunique()
+                st.write(f"*Total Logs Fetched:* {total_logs}")
+                st.write(f"*Unique IP Addresses:* {unique_ips if unique_ips else 0}")
+
+                # Bar chart of top IP addresses
+                if df_logs["ip_address"].notnull().any():
+                    ip_counts = df_logs["ip_address"].value_counts()
+                    st.subheader("Top IP Addresses")
+                    st.bar_chart(ip_counts)
+
+                # Line chart of logs over time
+                df_time = df_logs.copy()
+                df_time.set_index("timestamp", inplace=True)
+                df_time["count"] = 1
+                df_time_resampled = df_time.resample("1T").sum()["count"]
+
+                st.subheader("Log Volume Over Time")
+                st.line_chart(df_time_resampled)
+
+                # Store the number of logs in session state (optional)
+                st.session_state["cloud_findings"] = total_logs
+
             else:
                 st.info("No logs found for the specified log group/stream.")
+
         except Exception as e:
             st.error(f"❌ Error fetching logs: {str(e)}")
+
 
 
 
