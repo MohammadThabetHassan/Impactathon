@@ -1,0 +1,15 @@
+streamlit
+boto3
+pandas
+plotly
+numpy
+matplotlib
+seaborn
+requests
+joblib
+urllib3
+imbalanced-learn
+scikit-learn
+xgboost
+pytesseract
+Pillow
