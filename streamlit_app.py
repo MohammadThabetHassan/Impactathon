@@ -51,9 +51,8 @@ if not os.path.isfile(pytesseract.pytesseract.tesseract_cmd):
     default_tesseract = "/usr/bin/tesseract"  # Change this if you're on Windows
     if os.path.isfile(default_tesseract):
         pytesseract.pytesseract.tesseract_cmd = default_tesseract
-    else:
-        st.error(
-            "Tesseract OCR executable not found. Please install Tesseract and set pytesseract.pytesseract.tesseract_cmd appropriately.")
+
+       
 ########################################
 
 # -------------------------------
